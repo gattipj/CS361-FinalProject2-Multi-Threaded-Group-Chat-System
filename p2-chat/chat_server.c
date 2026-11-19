@@ -3,16 +3,45 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 #include "port_utils.h"
 
 #define BUFFER_SIZE 1024
+
+void *handle_client(void *arg) {
+    char buffer[BUFFER_SIZE];
+    int n;
+    // Get client_fd from arg
+    int client_fd = (int)arg;
+    // Chat loop: Handle the currently connected client
+    while (1) {
+        memset(buffer, 0, BUFFER_SIZE);
+    // Read client request
+        n = read(client_fd, buffer, BUFFER_SIZE - 1);
+        if (n <= 0) {
+            break;
+        }
+
+        printf("[->] Received from client: %s", buffer);
+
+        // Write back answer
+        if (write(client_fd, buffer, n) < 0) {
+            perror("[-] Write failed");
+            break;
+        }
+    }
+
+    // Close the current client connection
+    printf("[*] Client disconnected. Cleaning up socket.\n");
+    close(client_fd);
+    pthread_exit(NULL);
+}
+
 
 int main(int argc, char *argv[]) {
     int server_fd, client_fd;
     struct sockaddr_in server_addr, client_addr;
     socklen_t addr_size;
-    char buffer[BUFFER_SIZE];
-    int n;
     int port;
 
     // Check command line arguments
@@ -74,27 +103,9 @@ int main(int argc, char *argv[]) {
         printf("[+] Connected established with %s:%d\n",
                inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
-        // Chat loop: Handle the currently connected client
-        while (1) {
-            memset(buffer, 0, BUFFER_SIZE);
-	    // Read client request
-            n = read(client_fd, buffer, BUFFER_SIZE - 1);
-            if (n <= 0) {
-                break;
-            }
-
-            printf("[->] Received from client: %s", buffer);
-
-            // Write back answer
-            if (write(client_fd, buffer, n) < 0) {
-                perror("[-] Write failed");
-                break;
-            }
-        }
-
-        // Close the current client connection
-        printf("[*] Client disconnected. Cleaning up socket.\n");
-        close(client_fd);
+        // Give this connection to a child thread
+        pthread_t tid;
+        pthread_create (&tid, NULL, handle_client, (void *)client_fd);
     }
 
     // Unreachable code, but good practice
